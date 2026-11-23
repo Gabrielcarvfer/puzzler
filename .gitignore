@@ -3,6 +3,9 @@ build/
 local.properties
 .idea/workspace.xml
 *.apk
-test/
+/test/
+core/src/test/resources/
 models/
 app/src/main/assets/*.onnx
+session/
+

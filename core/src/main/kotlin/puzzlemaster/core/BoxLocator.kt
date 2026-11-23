@@ -197,6 +197,40 @@ class BoxLocator(val poster: Mat, val cols: Int, val rows: Int, val cell: Int) {
         }
 
         /**
+         * Finds the box picture's four corners in a photo (the largest bright-edged quadrilateral), or
+         * null. Corners are returned clockwise from top-left, in the photo's pixel coordinates.
+         */
+        fun detectCorners(photoBgr: Mat): List<Point>? {
+            val k = 1000.0 / maxOf(photoBgr.cols(), photoBgr.rows())
+            val small = Mat(); Imgproc.resize(photoBgr, small, Size(photoBgr.cols() * k, photoBgr.rows() * k), 0.0, 0.0, Imgproc.INTER_AREA)
+            val gray = Mat(); Imgproc.cvtColor(small, gray, Imgproc.COLOR_BGR2GRAY)
+            Imgproc.GaussianBlur(gray, gray, Size(5.0, 5.0), 0.0)
+            val area = small.cols() * small.rows().toDouble()
+            var best: List<Point>? = null; var bestArea = 0.15 * area
+            for ((lo, hi) in listOf(30.0 to 90.0, 50.0 to 150.0, 15.0 to 45.0)) {
+                val edges = Mat(); Imgproc.Canny(gray, edges, lo, hi)
+                Imgproc.dilate(edges, edges, Imgproc.getStructuringElement(Imgproc.MORPH_RECT, Size(3.0, 3.0)))
+                val cs = ArrayList<org.opencv.core.MatOfPoint>()
+                Imgproc.findContours(edges, cs, Mat(), Imgproc.RETR_LIST, Imgproc.CHAIN_APPROX_SIMPLE)
+                for (c in cs) {
+                    val c2 = MatOfPoint2f(*c.toArray())
+                    val hull = org.opencv.core.MatOfInt(); Imgproc.convexHull(c, hull)
+                    val hp = MatOfPoint2f(*hull.toArray().map { c.toArray()[it] }.toTypedArray())
+                    val approx = MatOfPoint2f(); Imgproc.approxPolyDP(hp, approx, 0.02 * Imgproc.arcLength(hp, true), true)
+                    if (approx.rows() != 4) continue
+                    val a = Imgproc.contourArea(approx)
+                    if (a <= bestArea || a > 0.98 * area) continue
+                    bestArea = a; best = approx.toArray().map { Point(it.x / k, it.y / k) }
+                    c2.release()
+                }
+            }
+            val b = best ?: return null
+            val tl = b.minBy { it.x + it.y }; val br = b.maxBy { it.x + it.y }
+            val tr = b.maxBy { it.x - it.y }; val bl = b.minBy { it.x - it.y }
+            return listOf(tl, tr, br, bl)
+        }
+
+        /**
          * Builds the reference from a photo of the box picture and its 4 corners (any order).
          * [pieceCount] and [aspect] (width / height of the finished puzzle) set the grid.
          */

@@ -23,7 +23,8 @@ object TableSegmenter {
     class Blob(val contour: MatOfPoint, val area: Double, val touchesBorder: Boolean)
 
     /** [bodyRadius]: inscribed radius of a typical piece body in pixels (0 if unknown). */
-    class Result(val blobs: List<Blob>, val bodyRadius: Double)
+    /** [raw]: blobs before touching pieces are split apart. */
+    class Result(val blobs: List<Blob>, val bodyRadius: Double, val raw: List<Blob> = blobs, val mask: Mat? = null, val minArea: Double = 0.0)
 
     data class Config(
         val lightnessWeight: Double = 0.5,
@@ -31,7 +32,17 @@ object TableSegmenter {
         val minThreshold: Double = 18.0,
         val maxThreshold: Double = 42.0,
         /** Table candidates: chroma distance to the dominant colour, and max local gradient. */
-        val tableChromaRange: Double = 32.0,
+        val tableChromaRange: Double = 40.0,
+        /** A smooth wood-coloured area must be at least this fraction of the image to count as table. */
+        val tableMinAreaFraction: Double = 0.004,
+        /** Light variations broader than this fraction of the image's long side are removed before thresholding. */
+        val glareScale: Double = 0.22,
+        /** Fuse hue evidence into the distance map (see segment()). Hue units are OpenCV's 0..180. */
+        val hueFusion: Boolean = false,
+        val hueFar: Double = 12.0,
+        val hueNear: Double = 7.0,
+        val hueBonus: Double = 45.0,
+        val huePenalty: Double = 12.0,
         val tableSmoothness: Double = 14.0,
         val splitTouching: Boolean = true,
         /** Core = deeper inside the mask than this fraction of a typical piece's inscribed radius. */
@@ -78,14 +89,34 @@ object TableSegmenter {
         Core.magnitude(gx, gy, grad)
         Imgproc.blur(grad, grad, Size(5.0, 5.0))
         val gb = FloatArray(sw * sh); grad.get(0, 0, gb)
+        // "Smooth" is relative to the photo: brighter light makes the wood grain stronger. The calmest
+        // 30% of the image is table (or plain piece interiors); allow a bit more texture than that.
+        val smoothLimit = run {
+            val sorted = gb.copyOf(); sorted.sort()
+            (1.7 * sorted[(sorted.size * 0.3).toInt()]).coerceIn(cfg.tableSmoothness, 3.0 * cfg.tableSmoothness)
+        }
         val table = Mat(sh, sw, CvType.CV_32FC1)
         val tb = FloatArray(sw * sh)
         for (i in 0 until sw * sh) {
             val d = abs((px[i * 3 + 1].toInt() and 0xFF) - g[1]) + abs((px[i * 3 + 2].toInt() and 0xFF) - g[2])
-            tb[i] = if (d < cfg.tableChromaRange && gb[i] < cfg.tableSmoothness && (vm == null || vm[i].toInt() != 0)) 1f else 0f
+            tb[i] = if (d < cfg.tableChromaRange && gb[i] < smoothLimit && (vm == null || vm[i].toInt() != 0)) 1f else 0f
         }
         table.put(0, 0, tb)
+        // Only large connected smooth areas count as table: wood-coloured bits inside pieces don't,
+        // while lamp or flash glare (smooth, big, but much brighter and paler) does.
+        run {
+            val t8 = Mat(); table.convertTo(t8, CvType.CV_8UC1, 255.0)
+            val labels = Mat(); val stats = Mat(); val cents = Mat()
+            val n = Imgproc.connectedComponentsWithStats(t8, labels, stats, cents, 8, CvType.CV_32S)
+            val minArea = cfg.tableMinAreaFraction * sw * sh
+            val keep = BooleanArray(n)
+            for (i in 1 until n) keep[i] = stats.get(i, Imgproc.CC_STAT_AREA)[0] >= minArea
+            val lb = IntArray(sw * sh); labels.get(0, 0, lb)
+            for (i in 0 until sw * sh) if (!keep[lb[i]]) tb[i] = 0f
+            table.put(0, 0, tb)
+        }
         Imgproc.erode(table, table, Imgproc.getStructuringElement(Imgproc.MORPH_ELLIPSE, Size(5.0, 5.0)))
+        debug?.let { d -> val t8 = Mat(); table.convertTo(t8, CvType.CV_8UC1, 255.0); d("table", t8); val g8 = Mat(); grad.convertTo(g8, CvType.CV_8UC1, 4.0); d("grad", g8) }
 
         // ---- Local table colour: normalised blur of the candidates, fine scale first, then coarse. ----
         val bgChans = ArrayList<Mat>()
@@ -118,6 +149,46 @@ object TableSegmenter {
         val dist = Mat(); dist32.convertTo(dist, CvType.CV_8UC1)
         if (valid != null) { val inv = Mat(); Core.bitwise_not(valid, inv); dist.setTo(Scalar(0.0), inv) }
         debug?.invoke("dist", dist)
+        // Glare and uneven light raise the distance smoothly over large areas, while pieces stand out
+        // sharply. Remove everything broader than a piece cluster (morphological opening = "what is
+        // left when piece-sized bumps are erased") so one threshold works across the whole photo.
+        run {
+            val ds = Mat(); Imgproc.resize(dist, ds, small.size(), 0.0, 0.0, Imgproc.INTER_AREA)
+            val k = ((max(sw, sh) * cfg.glareScale).toInt() or 1).toDouble()
+            // Erode with the table-candidate minimum only: use a min filter, then smooth, then never exceed dist.
+            val floor = Mat(); Imgproc.erode(ds, floor, Imgproc.getStructuringElement(Imgproc.MORPH_ELLIPSE, Size(k, k)))
+            Imgproc.dilate(floor, floor, Imgproc.getStructuringElement(Imgproc.MORPH_ELLIPSE, Size(k, k)))
+            Imgproc.GaussianBlur(floor, floor, Size(0.0, 0.0), k / 4)
+            val floorFull = Mat(); Imgproc.resize(floor, floorFull, dist.size(), 0.0, 0.0, Imgproc.INTER_LINEAR)
+            Core.subtract(dist, floorFull, dist)
+        }
+        // Hue evidence, fused with the distance: a strongly coloured pixel whose hue is clearly not the
+        // wood's (blue sky, pink blossom, green) is piece even where the light makes the distance weak;
+        // a saturated pixel in the wood's own hue band is more likely table (grain, lit wood).
+        if (cfg.hueFusion) {
+            val hsv = Mat(); Imgproc.cvtColor(blurred, hsv, Imgproc.COLOR_BGR2HSV)
+            val ch = ArrayList<Mat>(); Core.split(hsv, ch)
+            val sat = Mat(); Core.compare(ch[1], Scalar(120.0), sat, Core.CMP_GT)
+            val hist = Mat()
+            Imgproc.calcHist(listOf(ch[0]), org.opencv.core.MatOfInt(0), sat, hist, org.opencv.core.MatOfInt(180), org.opencv.core.MatOfFloat(0f, 180f))
+            val hv = FloatArray(180); hist.get(0, 0, hv)
+            var h0 = 0; var best = -1f
+            for (i in 0 until 180) { var v = 0f; for (d in -2..2) v += hv[(i + d + 180) % 180]; if (v > best) { best = v; h0 = i } }
+            val dh = Mat(); Core.absdiff(ch[0], Scalar(h0.toDouble()), dh)
+            val wrap = Mat(); Core.absdiff(dh, Scalar(180.0), wrap)
+            Core.min(dh, wrap, dh)
+            val far = Mat(); Core.compare(dh, Scalar(cfg.hueFar), far, Core.CMP_GT)
+            val coloured = Mat(); Core.compare(ch[1], Scalar(70.0), coloured, Core.CMP_GT)
+            Core.bitwise_and(far, coloured, far)
+            val near = Mat(); Core.compare(dh, Scalar(cfg.hueNear), near, Core.CMP_LE)
+            val strong = Mat(); Core.compare(ch[1], Scalar(110.0), strong, Core.CMP_GT)
+            Core.bitwise_and(near, strong, near)
+            if (valid != null) { Core.bitwise_and(far, valid, far) }
+            Core.add(dist, Scalar(cfg.hueBonus), dist, far)
+            Core.subtract(dist, Scalar(cfg.huePenalty), dist, near)
+            debug?.invoke("hue", far)
+        }
+        debug?.invoke("flat", dist)
 
         val tmp = Mat()
         val otsu = Imgproc.threshold(dist, tmp, 0.0, 255.0, Imgproc.THRESH_BINARY or Imgproc.THRESH_OTSU)
@@ -134,9 +205,17 @@ object TableSegmenter {
         val radius = bodyRadius(mask)
         val split = if (cfg.splitTouching && radius > 3) splitTouching(blurred, mask, radius, cfg) else mask
         debug?.invoke("split", split)
+        val out = blobsOf(split, valid, minArea)
+        val rawOut = if (split === mask) out else blobsOf(mask, valid, minArea)
+        return Result(out, radius, rawOut, mask, minArea)
+    }
+
+    /** Connected regions of a piece mask, with whether each is cut off by the photo's (or the rectified area's) edge. */
+    fun blobsOf(m: Mat, valid: Mat?, minArea: Double): List<Blob> {
+    val w = m.cols(); val h = m.rows()
         val contours = ArrayList<MatOfPoint>()
-        Imgproc.findContours(split, contours, Mat(), Imgproc.RETR_EXTERNAL, Imgproc.CHAIN_APPROX_NONE)
-        val out = ArrayList<Blob>()
+        Imgproc.findContours(m, contours, Mat(), Imgproc.RETR_EXTERNAL, Imgproc.CHAIN_APPROX_NONE)
+        val list = ArrayList<Blob>()
         for (c in contours) {
             val area = Imgproc.contourArea(c)
             if (area < minArea) continue
@@ -151,9 +230,9 @@ object TableSegmenter {
                 Core.bitwise_and(local, inv, local)
                 touches = Core.countNonZero(local) > 0
             }
-            out.add(Blob(c, area, touches))
+            list.add(Blob(c, area, touches))
         }
-        return Result(out, radius)
+        return list
     }
 
     /**
@@ -162,7 +241,8 @@ object TableSegmenter {
      * local maxima is the body radius even when every piece touches another.
      */
     private fun bodyRadius(mask: Mat): Double {
-        val f = 4
+        // Work on a copy about 1640 px on its long side: small enough to be fast, big enough for piece bodies to register.
+        val f = max(1, Math.round(max(mask.cols(), mask.rows()) / 1640.0).toInt())
         val small = Mat(); Imgproc.resize(mask, small, Size(), 1.0 / f, 1.0 / f, Imgproc.INTER_NEAREST)
         // Fill pinholes (print colours close to the table) so they don't cut the bodies.
         Imgproc.morphologyEx(small, small, Imgproc.MORPH_CLOSE, Imgproc.getStructuringElement(Imgproc.MORPH_ELLIPSE, Size(5.0, 5.0)))

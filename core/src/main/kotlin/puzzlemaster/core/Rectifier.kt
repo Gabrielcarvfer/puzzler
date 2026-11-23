@@ -66,17 +66,22 @@ object Rectifier {
         val wc = MatOfPoint2f(); Core.perspectiveTransform(corners, wc, hm)
         val pts = wc.toArray()
         val minX = pts.minOf { it.x }; val maxX = pts.maxOf { it.x }; val minY = pts.minOf { it.y }; val maxY = pts.maxOf { it.y }
-        // Keep the frame's resolution (scale 1 at the centre) unless the result would get too big.
-        val sc = minOf(1.0, maxOut * w / (maxX - minX), maxOut * h / (maxY - minY))
-        val ow = Math.ceil((maxX - minX) * sc).toInt(); val oh = Math.ceil((maxY - minY) * sc).toInt()
+        // Keep the frame's own resolution around the view centre (a rotation about the camera centre
+        // preserves scale there) and crop a window of at most maxOut x the frame around it: at steep
+        // tilt the far side stretches without bound and is simply cut off.
+        val cm = MatOfPoint2f(); Core.perspectiveTransform(MatOfPoint2f(Point(cx, cy)), cm, hm)
+        val c0 = cm.toArray()[0]
+        val sc = 1.0
+        val ow = minOf(Math.ceil(maxX - minX), Math.floor(maxOut * w)).toInt(); val oh = minOf(Math.ceil(maxY - minY), Math.floor(maxOut * h)).toInt()
+        val ox = (c0.x - ow / 2.0).coerceIn(minX, maxOf(minX, maxX - ow)); val oy = (c0.y - oh / 2.0).coerceIn(minY, maxOf(minY, maxY - oh))
         val size = org.opencv.core.Size(ow.toDouble(), oh.toDouble())
-        val sm = Mat(3, 3, CvType.CV_64F); sm.put(0, 0, sc, 0.0, -minX * sc, 0.0, sc, -minY * sc, 0.0, 0.0, 1.0)
+        val sm = Mat(3, 3, CvType.CV_64F); sm.put(0, 0, 1.0, 0.0, -ox, 0.0, 1.0, -oy, 0.0, 0.0, 1.0)
         val full = Mat(); Core.gemm(sm, hm, 1.0, Mat(), 0.0, full)
         val out = Mat(); Imgproc.warpPerspective(upright, out, full, size, Imgproc.INTER_LINEAR, Core.BORDER_CONSTANT, Scalar(0.0, 0.0, 0.0, 0.0))
         val ones = Mat(h, w, CvType.CV_8UC1, Scalar(255.0))
         val valid = Mat(); Imgproc.warpPerspective(ones, valid, full, size, Imgproc.INTER_NEAREST, Core.BORDER_CONSTANT, Scalar(0.0))
         val inv = DoubleArray(9); full.inv().get(0, 0, inv)
         // The virtual camera looks straight down: its principal point is the nadir.
-        return View(out, valid, inv, sc * (cx - minX), sc * (cy - minY), focalPx * sc, tilt)
+        return View(out, valid, inv, cx - ox, cy - oy, focalPx * sc, tilt)
     }
 }

@@ -1,0 +1,44 @@
+name: Build
+
+on:
+  push:
+  pull_request:
+  workflow_dispatch:
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: "21"
+
+      - uses: android-actions/setup-android@v3
+
+      - uses: gradle/actions/setup-gradle@v4
+
+      - name: Build
+        run: |
+          chmod +x gradlew
+          ./gradlew --no-daemon :app:assembleDebug :core:compileTestKotlin
+
+      # Tests that run on synthetic data. The others need photos of a real puzzle that are not
+      # part of the repository.
+      - name: Test
+        run: ./gradlew --no-daemon :core:test --tests 'puzzlemaster.core.BoxMapTest'
+
+      - uses: actions/upload-artifact@v4
+        if: failure()
+        with:
+          name: test-report
+          path: core/build/reports/tests/test/
+
+      - uses: actions/upload-artifact@v4
+        with:
+          name: puzzler-debug-apk
+          path: app/build/outputs/apk/debug/app-debug.apk
+          if-no-files-found: error

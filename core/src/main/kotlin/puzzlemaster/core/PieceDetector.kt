@@ -85,6 +85,8 @@ class PieceDetector(val cfg: Config = Config()) {
         val skipBorderTouching: Boolean = true,
         /** Compute the whole-piece colour palette (skip for fast screening). */
         val computePalette: Boolean = true,
+        /** Extra smoothing passes (width 1% of the outline) applied only for finding corners, against jagged outlines. */
+        val cornerSmooth: Int = 0,
         /** Contour resampling cap (lower = faster, coarser). */
         val maxContourPoints: Int = 1200,
         /** Tab/blank depth limit as a fraction of side length. */
@@ -192,7 +194,9 @@ class PieceDetector(val cfg: Config = Config()) {
         repeat(2) { val s = smoothClosed(px, py, smoothW); px = s.first; py = s.second }
 
         debugContour = px to py
-        val corners = findCorners(px, py) ?: return null
+        var cx = px; var cy = py
+        repeat(cfg.cornerSmooth) { val s = smoothClosed(cx, cy, max(2, n / 100)); cx = s.first; cy = s.second }
+        val corners = findCorners(cx, cy) ?: return null
         val quality = lastCornerScore
         val area = signedArea(px, py)
         var cxSum = 0.0; var cySum = 0.0

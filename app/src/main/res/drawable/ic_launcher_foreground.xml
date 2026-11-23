@@ -1,0 +1,11 @@
+<?xml version="1.0" encoding="utf-8"?>
+<vector xmlns:android="http://schemas.android.com/apk/res/android" android:width="108dp" android:height="108dp" android:viewportWidth="108" android:viewportHeight="108">
+  <path android:strokeColor="#4CFF7A1A" android:strokeWidth="0.9" android:pathData="M54,21 A33,33 0 1,1 53.99,21 Z"/>
+  <group android:translateX="-3" android:translateY="3">
+    <path android:fillColor="#1AFF7A1A" android:pathData="M34,34 H46 C47,34 46,31 46,28.5 A8,8 0 1,1 62,28.5 C62,31 61,34 62,34 H74 V46 C74,47 77,46 79.5,46 A8,8 0 1,1 79.5,62 C77,62 74,61 74,62 V74 H62 C61,74 62,71 62,68.5 A8,8 0 1,0 46,68.5 C46,71 47,74 46,74 H34 V62 C34,61 37,62 39.5,62 A8,8 0 1,0 39.5,46 C37,46 34,47 34,46 Z"/>
+    <path android:strokeColor="#1AFF7A1A" android:strokeWidth="10" android:strokeLineJoin="round" android:pathData="M34,34 H46 C47,34 46,31 46,28.5 A8,8 0 1,1 62,28.5 C62,31 61,34 62,34 H74 V46 C74,47 77,46 79.5,46 A8,8 0 1,1 79.5,62 C77,62 74,61 74,62 V74 H62 C61,74 62,71 62,68.5 A8,8 0 1,0 46,68.5 C46,71 47,74 46,74 H34 V62 C34,61 37,62 39.5,62 A8,8 0 1,0 39.5,46 C37,46 34,47 34,46 Z"/>
+    <path android:strokeColor="#38FF7A1A" android:strokeWidth="6.5" android:strokeLineJoin="round" android:pathData="M34,34 H46 C47,34 46,31 46,28.5 A8,8 0 1,1 62,28.5 C62,31 61,34 62,34 H74 V46 C74,47 77,46 79.5,46 A8,8 0 1,1 79.5,62 C77,62 74,61 74,62 V74 H62 C61,74 62,71 62,68.5 A8,8 0 1,0 46,68.5 C46,71 47,74 46,74 H34 V62 C34,61 37,62 39.5,62 A8,8 0 1,0 39.5,46 C37,46 34,47 34,46 Z"/>
+    <path android:strokeColor="#FFFF7A1A" android:strokeWidth="3.6" android:strokeLineJoin="round" android:pathData="M34,34 H46 C47,34 46,31 46,28.5 A8,8 0 1,1 62,28.5 C62,31 61,34 62,34 H74 V46 C74,47 77,46 79.5,46 A8,8 0 1,1 79.5,62 C77,62 74,61 74,62 V74 H62 C61,74 62,71 62,68.5 A8,8 0 1,0 46,68.5 C46,71 47,74 46,74 H34 V62 C34,61 37,62 39.5,62 A8,8 0 1,0 39.5,46 C37,46 34,47 34,46 Z"/>
+    <path android:strokeColor="#FFFFE3C8" android:strokeWidth="1.3" android:strokeLineJoin="round" android:pathData="M34,34 H46 C47,34 46,31 46,28.5 A8,8 0 1,1 62,28.5 C62,31 61,34 62,34 H74 V46 C74,47 77,46 79.5,46 A8,8 0 1,1 79.5,62 C77,62 74,61 74,62 V74 H62 C61,74 62,71 62,68.5 A8,8 0 1,0 46,68.5 C46,71 47,74 46,74 H34 V62 C34,61 37,62 39.5,62 A8,8 0 1,0 39.5,46 C37,46 34,47 34,46 Z"/>
+  </group>
+</vector>
