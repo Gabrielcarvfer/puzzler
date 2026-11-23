@@ -17,7 +17,11 @@ jobs:
           distribution: temurin
           java-version: "21"
 
+      # Name the packages explicitly: the action's default list includes "tools", which the SDK
+      # manager no longer provides. Build tools missing here are downloaded by Gradle.
       - uses: android-actions/setup-android@v3
+        with:
+          packages: "platform-tools platforms;android-36"
 
       - uses: gradle/actions/setup-gradle@v4
 
